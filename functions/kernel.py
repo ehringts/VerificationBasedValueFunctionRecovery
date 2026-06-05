@@ -28,6 +28,63 @@ class Kernel(metaclass=abc.ABCMeta):
         """Evaluate the radial derivative (phi'(r)/r)'/r used in the PDE Gramian."""
         pass
 
+    def getGramHermite(self, y, funcYList, x, funcXList):
+        """Build the Hermite Gramian for value and first-derivative functionals of a radial kernel."""
+        y     = np.asarray(y)
+        x     = np.asarray(x)
+        funcY = np.asarray(funcYList, dtype=int)
+        funcX = np.asarray(funcXList, dtype=int)
+        if y.ndim != 2 or x.ndim != 2:
+            raise ValueError("x and y must have shape (dimension, number_of_points).")
+        if y.shape[0] != x.shape[0]:
+            raise ValueError("x and y must have the same ambient dimension.")
+        if funcY.shape[0] != y.shape[1] or funcX.shape[0] != x.shape[1]:
+            raise ValueError("The functional-index lists must match the number of columns in y and x.")
+        if np.any(funcY < 0) or np.any(funcY > y.shape[0]) or np.any(funcX < 0) or np.any(funcX > x.shape[0]):
+            raise ValueError("Functional indices must lie in {0, ..., dimension}; derivatives use one-based coordinate indices.")
+        xx    = np.sum(x * x, axis=0, keepdims=True)
+        yy    = np.sum(y * y, axis=0, keepdims=True).T
+        diff  = np.sqrt(np.maximum(yy + xx - 2.0 * (y.T @ x), 0.0))
+        K     = np.zeros((y.shape[1], x.shape[1]), dtype=np.result_type(diff, float))
+        iy0   = funcY == 0
+        ix0   = funcX == 0
+        iyp   = ~iy0
+        ixp   = ~ix0
+        if np.any(iy0) and np.any(ix0):
+            idx    = np.ix_(iy0, ix0)
+            K[idx] = self.phi(diff[idx])
+        if np.any(ixp):
+            colsP = np.flatnonzero(ixp)
+            idxP  = funcX[ixp] - 1
+            xP    = x[idxP, colsP]
+            yP    = y[idxP, :].T
+            Bfull = xP[None, :] - yP
+        if np.any(iyp):
+            rowsP = np.flatnonzero(iyp)
+            idxY  = funcY[iyp] - 1
+            yY    = y[idxY, rowsP]
+            xY    = x[idxY, :]
+            Afull = yY[:, None] - xY
+        if np.any(iy0) and np.any(ixp):
+            idx    = np.ix_(iy0, ixp)
+            K[idx] = self.phiR(diff[idx]) * Bfull[iy0, :]
+        if np.any(iyp) and np.any(ix0):
+            idx    = np.ix_(iyp, ix0)
+            K[idx] = self.phiR(diff[idx]) * Afull[:, ix0]
+        if np.any(iyp) and np.any(ixp):
+            rowsP  = np.flatnonzero(iyp)
+            idx    = np.ix_(iyp, ixp)
+            A      = Afull[:, ixp]
+            B      = Bfull[rowsP, :]
+            K[idx] = self.phiRR(diff[idx]) * A * B
+            eq     = funcY[iyp][:, None] == funcX[ixp][None, :]
+            K[idx] = K[idx] - self.phiR(diff[idx]) * eq
+        return K
+
+    def getHermite(self, y, funcYList, x, funcXList):
+        """Alias for getGramHermite used by the constrained recovery experiment."""
+        return self.getGramHermite(y, funcYList, x, funcXList)
+
     def getGramPDEStartColumn(self, f, y, fy=[]):
         """Build the PDE Gramian column associated with the origin."""
         x    = np.atleast_2d(y[:, 0] * 0).T
@@ -183,6 +240,63 @@ class KernelProduct(metaclass=abc.ABCMeta):
     def phiRR(self, r):
         """Evaluate the radial derivative (phi'(r)/r)'/r used in the PDE Gramian."""
         pass
+
+    def getGramHermite(self, y, funcYList, x, funcXList):
+        """Build the Hermite Gramian for the quadratic product kernel k(x, y) = phi(||x-y||)(y^T x)^2."""
+        if self.case != 2:
+            raise ValueError("Hermite product recovery is implemented for case = 2.")
+        y     = np.asarray(y)
+        x     = np.asarray(x)
+        funcY = np.asarray(funcYList, dtype=int)
+        funcX = np.asarray(funcXList, dtype=int)
+        if y.ndim != 2 or x.ndim != 2:
+            raise ValueError("x and y must have shape (dimension, number_of_points).")
+        if y.shape[0] != x.shape[0]:
+            raise ValueError("x and y must have the same ambient dimension.")
+        if funcY.shape[0] != y.shape[1] or funcX.shape[0] != x.shape[1]:
+            raise ValueError("The functional-index lists must match the number of columns in y and x.")
+        if np.any(funcY < 0) or np.any(funcY > y.shape[0]) or np.any(funcX < 0) or np.any(funcX > x.shape[0]):
+            raise ValueError("Functional indices must lie in {0, ..., dimension}; derivatives use one-based coordinate indices.")
+        d, Ny  = y.shape
+        Nx     = x.shape[1]
+        xx     = np.sum(x * x, axis=0, keepdims=True)
+        yy     = np.sum(y * y, axis=0, keepdims=True).T
+        r      = np.sqrt(np.maximum(yy + xx - 2.0 * (y.T @ x), 0.0))
+        s      = y.T @ x
+        phi    = self.phi(r)
+        phiR   = self.phiR(r)
+        phiRR  = self.phiRR(r)
+        fy     = funcY[:, None]
+        fx     = funcX[None, :]
+        m00    = (fy == 0) & (fx == 0)
+        m0x    = (fy == 0) & (fx > 0)
+        my0    = (fy > 0) & (fx == 0)
+        myx    = (fy > 0) & (fx > 0)
+        cols   = np.arange(Nx)
+        rows   = np.arange(Ny)
+        pSafe  = np.where(funcX > 0, funcX - 1, 0)
+        qSafe  = np.where(funcY > 0, funcY - 1, 0)
+        xP     = x[pSafe, cols]
+        yP     = y[pSafe, :].T
+        yQ     = y[qSafe, rows]
+        xQ     = x[qSafe, :]
+        dp     = xP[None, :] - yP
+        dq     = xQ - yQ[:, None]
+        delta  = qSafe[:, None] == pSafe[None, :]
+        K      = np.zeros((Ny, Nx), dtype=np.result_type(phi, s, r))
+        s2     = s * s
+        tmp0x  = s2 * phiR * dp + 2.0 * phi * s * yP
+        tmpy0  = -s2 * phiR * dq + 2.0 * phi * s * xQ
+        tmpyx  = -s2 * phiRR * dp * dq - s2 * phiR * delta + 2.0 * s * phiR * (dp * xQ - dq * yP) + 2.0 * phi * xQ * yP + 2.0 * phi * s * delta
+        K[m00] = (phi * s2)[m00]
+        K[m0x] = tmp0x[m0x]
+        K[my0] = tmpy0[my0]
+        K[myx] = tmpyx[myx]
+        return K
+
+    def getHermite(self, y, funcYList, x, funcXList):
+        """Alias for getGramHermite used by the constrained recovery experiment."""
+        return self.getGramHermite(y, funcYList, x, funcXList)
 
     def getGramPDE(self, f, y, x, fy=[]):
         """Build the PDE Gramian block between evaluation points and centers."""

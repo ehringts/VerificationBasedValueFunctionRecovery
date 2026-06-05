@@ -222,7 +222,7 @@ class Model(metaclass=abc.ABCMeta):
         return (sol.y[:-1], sol.t, cost)
 
 class HEDirichlet1DFD(Model):
-    """Finite-difference nonlinear heat equation with controls and Dirichlet boundary conditions."""
+    """Finite-difference nonlinear heat equation with distributed controls and Dirichlet boundary conditions."""
 
     def __init__(self, NumbNodes, para):
         """Initialize the object and precompute the quantities used later."""
@@ -851,3 +851,107 @@ class CoupledDuffingOscillator4D(Model):
     def trueVF(self, x):
         """Evaluate the analytic value function when available."""
         raise NotImplementedError('No analytic value function is available for CoupledDuffingOscillator4D.')
+
+class ConUnconExample:
+    """Two-dimensional verification-condition example with one true value function and one spurious HJB solution."""
+
+    def __init__(self, zeta=1.0):
+        """Initialize the constrained-versus-unconstrained comparison model."""
+        self.zeta          = float(zeta)
+        self.stateDim      = 2
+        self.controlDim    = 1
+        self.stateWeight   = 1.0
+        self.controlWeight = 1.0
+        A                  = np.array([[0.25, -1.0], [1.0, 0.0]])
+        B                  = np.array([[1.0], [0.0]])
+        Q                  = np.array([[0.5, 0.0], [0.0, 0.0]])
+        R                  = np.array([[self.controlWeight]])
+        self.matrixKGain   = la.solve_continuous_are(A, B, Q, R)
+        self.lambdaMin     = np.linalg.eigvals(self.matrixKGain).min().real
+        self.lambdaMax     = np.linalg.eigvals(self.matrixKGain).max().real
+        P0                 = self.zeta * np.eye(self.matrixKGain.shape[0])
+        self.V0            = lambda x: np.sum(x * (P0 @ x), axis=0)
+        self.gradV_0       = lambda x: 2.0 * (P0 @ x)
+        self.stableControl = lambda x: self.getMuFromSr(x, self.gradV_0(x))
+        self.getMuFromSr   = lambda x, srX: -0.5 / self.controlWeight * np.sum(self.g(x) * srX, axis=0)
+        self.getF          = lambda x, muX: self.f(x) + self.g(x) * muX
+        self.getRHS        = lambda x, muX: -self.h(x) - self.controlWeight * muX ** 2
+
+    def _as2d(self, x):
+        """Return a state array with columns as states and remember whether the input was one vector."""
+        x            = np.asarray(x, dtype=float)
+        vector_input = False
+        if x.ndim == 1:
+            x            = x.reshape(-1, 1)
+            vector_input = True
+        if x.shape[0] != 2:
+            raise ValueError(f'Expected state dimension 2, got shape {x.shape}.')
+        return x, vector_input
+
+    def h(self, x):
+        """Evaluate the state running cost used in the verification-condition example."""
+        x, vector_input = self._as2d(x)
+        val             = 0.5 * np.exp(2.0 * np.sum(x ** 2, axis=0)) * x[0, :] ** 2
+        if vector_input:
+            return float(val[0])
+        return val
+
+    def trueVF(self, x):
+        """Evaluate the true optimal value function."""
+        x, vector_input = self._as2d(x)
+        val             = np.exp(np.sum(x ** 2, axis=0)) - 1.0
+        if vector_input:
+            return float(val[0])
+        return val
+
+    def falseVF(self, x):
+        """Evaluate the spurious HJB solution used for diagnostics."""
+        x, vector_input = self._as2d(x)
+        val             = 0.5 * (1.0 - np.exp(np.sum(x ** 2, axis=0)))
+        if vector_input:
+            return float(val[0])
+        return val
+
+    def f(self, x):
+        """Evaluate the uncontrolled drift dynamics."""
+        x, vector_input = self._as2d(x)
+        r2              = np.sum(x ** 2, axis=0)
+        out             = np.vstack([0.25 * np.exp(r2) * x[0, :] - x[1, :], x[0, :]])
+        if vector_input:
+            return out[:, 0]
+        return out
+
+    def g(self, x):
+        """Evaluate the control vector field."""
+        x, vector_input = self._as2d(x)
+        out             = np.vstack([np.ones_like(x[0, :]), np.zeros_like(x[0, :])])
+        if vector_input:
+            return out[:, 0]
+        return out
+
+    def jacobi_of_f_transposed_dot_p(self, x, p):
+        """Evaluate the product (Df(x))^T p."""
+        x, vector_input = self._as2d(x)
+        p               = np.asarray(p, dtype=float)
+        if p.ndim == 1:
+            p = p.reshape(2, 1)
+        r2      = np.sum(x ** 2, axis=0)
+        er2     = np.exp(r2)
+        df1_dx1 = 0.25 * er2 * (1.0 + 2.0 * x[0, :] ** 2)
+        df1_dx2 = 0.5 * er2 * x[0, :] * x[1, :] - 1.0
+        out     = np.vstack([df1_dx1 * p[0, :] + p[1, :], df1_dx2 * p[0, :]])
+        if vector_input:
+            return out[:, 0]
+        return out
+
+    def HJB(self, x, p):
+        """Evaluate the HJB residual for the comparison model."""
+        x, vector_input = self._as2d(x)
+        p               = np.asarray(p, dtype=float)
+        if p.ndim == 1:
+            p = p.reshape(2, 1)
+        gt_p = np.sum(self.g(x) * p, axis=0)
+        val  = self.h(x) - 0.25 / self.controlWeight * gt_p ** 2 + np.sum(self.f(x) * p, axis=0)
+        if vector_input:
+            return float(val[0])
+        return val
