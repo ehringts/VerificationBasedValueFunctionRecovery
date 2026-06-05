@@ -76,7 +76,7 @@ This script loads `data/ROMBasis.pkl`, initializes the reduced-order heat-equati
 
 ### `ConVsUncon.py`
 
-This script initializes the two-dimensional benchmark `ConUnconExample`, builds a Cartesian collocation grid, and compares two ways to approximate the value function. First, `ConRun(zeta)` builds Hermite value/gradient data, forms the Hermite Gram matrix in `functions/kernel.py`, and solves the direct constrained RKHS recovery problem with SLSQP. The constraints enforce the pointwise HJB verification equality and nonnegativity of the value samples. Second, `UnconRun(zeta)` runs product-kernel RKHS-PI on the same grid. The default setting is safe for a fresh repository: if no cached `data/ConUnconRun` file exists, the script runs a one-point demo with `zeta = 0.5` and a smaller grid. To reproduce the full sweep, set `RUN_FULL_SWEEP = True` in `ConVsUncon.py`; then the script sweeps the parameter `zeta`, stores `data/ConUnconRun`, and plots the relative error to the true value function and to the spurious HJB solution.
+This script initializes the two-dimensional benchmark `ConUnconExample`, builds a Cartesian collocation grid, and compares two ways to approximate the value function. First, `ConRun(zeta)` builds Hermite value/gradient data, forms the Hermite Gram matrix in `functions/kernel.py`, and solves the direct constrained RKHS recovery problem with SLSQP. The constraints enforce the pointwise HJB verification equality and nonnegativity of the value samples. Second, `UnconRun(zeta)` runs product-kernel RKHS-PI on the same grid. 
 
 ## Typical run order
 
@@ -89,9 +89,9 @@ python HeatEquation.py
 python ConVsUncon.py
 ```
 
-For the heat-equation ROM, run `buildBasisForROM.py` before `HeatEquation.py`, because the ROM script expects `data/ROMBasis.pkl` to exist. The constrained experiment is independent of the ROM workflow and can be run separately with `python ConVsUncon.py`. For the full constrained sweep, edit `ConVsUncon.py` and set `RUN_FULL_SWEEP = True`; otherwise the script runs the smaller one-point demo when no cache is available.
+For the heat-equation ROM, run `buildBasisForROM.py` before `HeatEquation.py`, because the ROM script expects `data/ROMBasis.pkl` to exist. The constrained experiment is independent of the ROM workflow and can be run separately with `python ConVsUncon.py`. 
 
-Data generation, gamma search, SLSQP solves, and RKHS-PI training can be computationally expensive. This is especially relevant for the four-dimensional, ROM heat-equation, and constrained-versus-unconstrained examples. The constrained script limits common BLAS thread counts inside the script to make the SLSQP run more stable on machines where many linear-algebra threads cause overhead.
+Data generation, gamma search, and RKHS-PI training can be computationally expensive. This is especially relevant for the four-dimensional, ROM heat-equation, and constrained-versus-unconstrained examples. 
 
 ## Main routines
 
@@ -99,10 +99,8 @@ Data generation, gamma search, SLSQP solves, and RKHS-PI training can be computa
 - `auxFunctions.RKHSPI(...)` runs the RKHS policy iteration with the standard radial kernel.
 - `auxFunctions.RKHSPIProductKernel(...)` runs the same RKHS policy iteration with the product kernel.
 - `Surrogate.doFGreedy(...)` and `SurrogateProductKernel.doFGreedy(...)` select greedy collocation centers by the maximal GHJB residual.
-- `ConRun(zeta)` in `ConVsUncon.py` runs the direct constrained Hermite RKHS recovery solve.
-- `UnconRun(zeta)` in `ConVsUncon.py` runs the product-kernel RKHS-PI comparison solve.
 - `Observer.plotObserver(...)`, `Observer.plotObserver2(...)`, and `plot_convergence_vs_parameter(...)` create the comparison plots.
 
 ## Requirements
 
-The code uses NumPy, SciPy, Matplotlib, and a local `functions` package. The plotting routines use LaTeX rendering through Matplotlib, so a working LaTeX installation is needed for the final PDF plots. The optional `threadpoolctl` package is used by `ConVsUncon.py` when available to limit BLAS threads during the SLSQP solve.
+The code uses NumPy, SciPy, Matplotlib, and a local `functions` package. The plotting routines use LaTeX rendering through Matplotlib, so a working LaTeX installation is needed for the final PDF plots. 
