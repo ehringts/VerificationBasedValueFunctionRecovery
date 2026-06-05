@@ -1,6 +1,6 @@
 # RKHS-PI example code
 
-This repository contains example implementations for RKHS policy iteration for nonlinear infinite-horizon optimal-control problems. The code builds value-function surrogates from generalized HJB residual data, compares a standard radial RKHS kernel with a product-kernel variant, and stores the resulting greedy residuals, value-function errors, performance errors, and quadratic-bound diagnostics.
+This repository contains experiment scripts and helper modules for RKHS-based value-function surrogate construction in nonlinear infinite-horizon optimal control. The implemented method does not learn a control law directly. Instead, it constructs a surrogate for the optimal value function by solving a sequence of generalized Hamilton-Jacobi-Bellman (GHJB) equations with symmetric kernel collocation. The sequence is generated in a policy-iteration manner: for a fixed feedback policy, a linear GHJB equation is collocated in an RKHS; the gradient of the resulting value-function surrogate then induces the next feedback policy.
 
 ## Organization of the repository
 
